@@ -70,7 +70,7 @@ def format_currency(value):
         return "₹0"
     return f"₹{value:,.2f}"
 
-# Data loading function
+# Data loading functionus
 @st.cache_data
 def load_driver_data():
     """Load driver data from Excel file"""

@@ -179,7 +179,8 @@ class DriverDashboard:
                 'label': 'Net Earnings (₹)',
                 'format': ':,.2f',
                 'metric_name': 'Avg Earnings',
-                'format_func': format_currency
+                'format_func': format_currency,
+                'display_name': 'Total Online Earnings'
             }
         elif analysis_type == 'Tenure vs Online Hours':
             return {
@@ -187,7 +188,8 @@ class DriverDashboard:
                 'label': 'Online Hours',
                 'format': ':.2f',
                 'metric_name': 'Avg Hours',
-                'format_func': lambda x: f"{x:.2f} hrs"
+                'format_func': lambda x: f"{x:.2f} hrs",
+                'display_name': 'Total Online Hours'
             }
     
     def normalize_month_data(self, df):
@@ -210,28 +212,31 @@ class DriverDashboard:
         return df
     
     def get_aggregated_stats(self, data, pmv_id_col):
-        """Get aggregated statistics for unique PMV IDs"""
+        """Get aggregated statistics for unique PMV IDs - SUM values for the same driver in the same month"""
         if data is None or len(data) == 0:
             return None
         
-        # Group by PMV ID and calculate averages for each unique driver
+        # Group by PMV ID and calculate SUMS for performance metrics and MEAN for driver attributes
         agg_dict = {
-            'Net Earnings (Toll - Tip)': 'mean',
-            'Tenure(Days)': 'mean',
+            # SUM these performance metrics (what the driver achieved in the month)
+            'Net Earnings (Toll - Tip)': 'sum',  # Total earnings in the month
+            'Trips': 'sum',  # Total trips in the month
+            'Online Hours': 'sum',  # Total hours in the month
+            
+            # MEAN/FIRST for driver attributes (these should be consistent)
+            'Tenure(Days)': 'mean',  # Average tenure (should be similar across weeks)
+            'Acceptance Rate': 'mean',  # Average acceptance rate
+            'VBI': 'mean',  # Average VBI
         }
         
-        # Add other columns if they exist
-        if 'Online Hours' in data.columns:
-            agg_dict['Online Hours'] = 'mean'
-        if 'Trips' in data.columns:
-            agg_dict['Trips'] = 'mean'
-        if 'Acceptance Rate' in data.columns:
-            agg_dict['Acceptance Rate'] = 'mean'
-        if 'VBI' in data.columns:
-            agg_dict['VBI'] = 'mean'
+        # Only include columns that exist in the data
+        final_agg_dict = {}
+        for col, func in agg_dict.items():
+            if col in data.columns:
+                final_agg_dict[col] = func
         
-        # Group by PMV ID
-        aggregated_data = data.groupby(pmv_id_col).agg(agg_dict).reset_index()
+        # Group by PMV ID and aggregate
+        aggregated_data = data.groupby(pmv_id_col).agg(final_agg_dict).reset_index()
         
         # Add back other identifying information (take first occurrence)
         id_columns = ['Month', 'Scheme', 'Name']
@@ -274,44 +279,68 @@ class DriverDashboard:
                 st.warning(f"No valid data points for {title}")
                 return None
             
-            # Prepare hover data
+            # Create a copy for display with renamed columns for hover
+            display_data = clean_data.copy()
+            
+            # Rename columns for display in hover
+            column_mapping = {}
+            if 'Net Earnings (Toll - Tip)' in display_data.columns:
+                display_data['Total Online Earnings'] = display_data['Net Earnings (Toll - Tip)']
+                column_mapping['Net Earnings (Toll - Tip)'] = 'Total Online Earnings'
+            
+            if 'Online Hours' in display_data.columns:
+                display_data['Total Online Hours'] = display_data['Online Hours']
+                column_mapping['Online Hours'] = 'Total Online Hours'
+            
+            if 'Trips' in display_data.columns:
+                display_data['Total Trips'] = display_data['Trips']
+                column_mapping['Trips'] = 'Total Trips'
+            
+            # Determine which column to use for Y-axis display
+            if analysis_type == 'Tenure vs Net Earnings':
+                y_display_column = 'Total Online Earnings'
+                cross_ref_column = 'Total Online Hours'
+            else:  # Tenure vs Online Hours
+                y_display_column = 'Total Online Hours'
+                cross_ref_column = 'Total Online Earnings'
+            
+            # Prepare hover data with display names
             hover_data = {
-                y_column: y_format,
+                y_display_column: y_format,
                 'Tenure(Days)': True,
                 pmv_id_col: True
             }
             
             # Add optional columns if they exist
-            if 'Month' in clean_data.columns:
+            if 'Month' in display_data.columns:
                 hover_data['Month'] = True
-            if 'Name' in clean_data.columns:
+            if 'Name' in display_data.columns:
                 hover_data['Name'] = True
-            if 'Trips' in clean_data.columns:
-                hover_data['Trips'] = ':.1f'
+            if 'Total Trips' in display_data.columns:
+                hover_data['Total Trips'] = ':.0f'  # Show total trips as whole number
             
             # Add cross-reference metric
-            other_column = 'Online Hours' if analysis_type == 'Tenure vs Net Earnings' else 'Net Earnings (Toll - Tip)'
-            if other_column in clean_data.columns:
-                other_format = ':.2f' if other_column == 'Online Hours' else ':,.2f'
-                hover_data[other_column] = other_format
+            if cross_ref_column in display_data.columns:
+                cross_ref_format = ':.2f' if 'Hours' in cross_ref_column else ':,.2f'
+                hover_data[cross_ref_column] = cross_ref_format
             
             # Create scatter plot with month in title
             plot_title = f'{month} - {analysis_type} (Unique PMV IDs: {len(clean_data)})'
             
             fig = px.scatter(
-                clean_data, 
+                display_data, 
                 x='Tenure(Days)', 
-                y=y_column,
+                y=y_display_column,
                 title=plot_title,
                 labels={
                     'Tenure(Days)': 'Tenure (Days)',
-                    y_column: y_label
+                    y_display_column: y_label
                 },
                 color_discrete_sequence=[scheme_color],
                 hover_data=hover_data
             )
             
-            # Add trend line
+            # Add trend line using original clean_data (not display_data)
             if show_trend and len(clean_data) > 1:
                 x = clean_data['Tenure(Days)'].values
                 y = clean_data[y_column].values
@@ -517,8 +546,59 @@ class DriverDashboard:
                 summary_stats = clean_data[['Tenure(Days)', y_column]].describe()
                 st.dataframe(summary_stats, use_container_width=True)
                 
+                # Show aggregation verification for the first PMV ID
+                st.markdown("#### 🔍 Aggregation Verification (SUM Method)")
+                st.markdown("*Showing how data is SUMMED for the first PMV ID in this month:*")
+                
+                # Get original data for verification
+                first_pmv = clean_data[pmv_id_col].iloc[0]
+                # Filter original data by both PMV ID and Month
+                original_records = data[
+                    (data[pmv_id_col] == first_pmv) & 
+                    (data['Month'] == month)
+                ]
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"**📋 Original Weekly Records for {first_pmv} in {month}:**")
+                    display_cols = [pmv_id_col, 'Month', 'Trips', 'Net Earnings (Toll - Tip)', 'Online Hours', 'Tenure(Days)']
+                    # Only add Week Begin if it exists in the data
+                    if 'Week Begin' in original_records.columns:
+                        display_cols.insert(2, 'Week Begin')
+                    available_cols = [col for col in display_cols if col in original_records.columns]
+                    st.dataframe(original_records[available_cols], use_container_width=True)
+                
+                with col2:
+                    st.markdown(f"**📊 Monthly Total for {first_pmv} in {month}:**")
+                    aggregated_result = clean_data[clean_data[pmv_id_col] == first_pmv]
+                    available_cols = [col for col in display_cols if col in aggregated_result.columns]
+                    st.dataframe(aggregated_result[available_cols], use_container_width=True)
+                    
+                    # Show the math for SUMMED values
+                    st.markdown("**🔢 Monthly Totals Calculation:**")
+                    
+                    if 'Trips' in original_records.columns:
+                        total_trips = original_records['Trips'].sum()
+                        trips_breakdown = ' + '.join(map(str, original_records['Trips'].values))
+                        st.write(f"✅ **Total Trips**: {trips_breakdown} = **{total_trips}**")
+                    
+                    if 'Net Earnings (Toll - Tip)' in original_records.columns:
+                        total_earnings = original_records['Net Earnings (Toll - Tip)'].sum()
+                        earnings_breakdown = ' + '.join([f'₹{x:,.2f}' for x in original_records['Net Earnings (Toll - Tip)'].values])
+                        st.write(f"✅ **Total Earnings**: {earnings_breakdown} = **₹{total_earnings:,.2f}**")
+                    
+                    if 'Online Hours' in original_records.columns:
+                        total_hours = original_records['Online Hours'].sum()
+                        hours_breakdown = ' + '.join([f'{x:.2f}' for x in original_records['Online Hours'].values])
+                        st.write(f"✅ **Total Hours**: {hours_breakdown} = **{total_hours:.2f} hrs**")
+                    
+                    if 'Tenure(Days)' in original_records.columns:
+                        avg_tenure = original_records['Tenure(Days)'].mean()
+                        tenure_breakdown = ' + '.join([f'{x:.1f}' for x in original_records['Tenure(Days)'].values])
+                        st.write(f"📅 **Avg Tenure**: ({tenure_breakdown}) ÷ {len(original_records)} = **{avg_tenure:.1f} days**")
+                
                 # Show PMV ID distribution
-                st.markdown("#### PMV ID Sample")
+                st.markdown("#### 📋 PMV ID Sample (Monthly Totals)")
                 sample_pmvs = clean_data[[pmv_id_col, 'Tenure(Days)', y_column]].head(10)
                 st.dataframe(sample_pmvs, use_container_width=True)
                 
@@ -527,7 +607,6 @@ class DriverDashboard:
     
     def display_interactive_plots(self, controls, analysis_type):
         """Display interactive plots"""
-        st.markdown('<div class="section-header">📊 Interactive Scatter Plot Analysis</div>', unsafe_allow_html=True)
         
         filtered_data = self.get_filtered_data(controls['selected_month'], controls['selected_scheme'])
         
@@ -550,7 +629,9 @@ class DriverDashboard:
             * **Use dropdowns** in sidebar to select month and scheme
             * **Switch analysis type** using radio buttons above
             * **Each point represents a unique PMV ID** (driver)
-            * **Statistics are calculated per unique PMV ID** to avoid duplicates
+            * **Values are SUMMED** for each driver across all weeks in the month
+            * **Performance metrics** (Trips, Earnings, Hours) are totaled per month
+            * **Driver attributes** (Tenure, Acceptance Rate, VBI) are averaged
             """)
         
         # Display statistics
@@ -611,10 +692,10 @@ def main():
         
         # Raw data view
         if st.session_state.get('show_raw_data', False):
-            st.markdown('<div class="section-header">📋 Raw Data (Aggregated by PMV ID)</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header">📋 Raw Data (Monthly Totals by PMV ID)</div>', unsafe_allow_html=True)
             
             st.info(f"📊 Currently viewing: **{controls['selected_scheme']}** data for **{controls['selected_month']}** - **{analysis_type}**")
-            st.info("🚗 **Note:** Data is aggregated by unique PMV ID to avoid duplicates")
+            st.info("🚗 **Note:** Data shows monthly totals by unique PMV ID (Trips, Earnings, Hours are SUMMED)")
             
             filtered_data = dashboard.get_filtered_data(controls['selected_month'], controls['selected_scheme'])
             
@@ -629,9 +710,9 @@ def main():
                         # Download button
                         csv_data = aggregated_data.to_csv(index=False)
                         st.download_button(
-                            label=f"📥 Download {controls['selected_scheme']} - {controls['selected_month']} Aggregated Data",
+                            label=f"📥 Download {controls['selected_scheme']} - {controls['selected_month']} Monthly Totals",
                             data=csv_data,
-                            file_name=f"{controls['selected_scheme'].lower().replace(' ', '_')}_{controls['selected_month'].lower()}_aggregated_data.csv",
+                            file_name=f"{controls['selected_scheme'].lower().replace(' ', '_')}_{controls['selected_month'].lower()}_monthly_totals.csv",
                             mime="text/csv"
                         )
                     else:

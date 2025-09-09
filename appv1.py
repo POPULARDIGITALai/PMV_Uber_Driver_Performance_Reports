@@ -74,7 +74,7 @@ def format_currency(value):
 @st.cache_data
 def load_driver_data():
     """Load driver data from Excel file"""
-    file_path = r"C:\Users\user\Downloads\DriverMIS_Data_22Aug.xlsx"
+    file_path = r"data\DriverMIS_Data_22Aug.xlsx"
     
     data_dict = {}
     

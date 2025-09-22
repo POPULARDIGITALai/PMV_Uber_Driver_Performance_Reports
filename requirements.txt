@@ -43,3 +43,5 @@ validators
 watchdog
 xlrd
 zipp
+scipy
+seaborn

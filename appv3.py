@@ -115,90 +115,6 @@ def load_driver_data(file_path):
         st.error(f"Error loading file: {str(e)}")
         return None
 
-# @st.cache_data
-# def create_sample_data():
-#     """Create sample data with proper monthly structure"""
-#     np.random.seed(42)
-    
-#     # Create data for 3 months with unique drivers
-#     months = ['June', 'July', 'August']
-#     all_data = []
-    
-#     for month_idx, month in enumerate(months):
-#         # Different number of drivers per month to simulate real scenario
-#         if month == 'August':
-#             n_drivers = 867  # Your example
-#             revenue_share_count = 128
-#             rental_count = 730
-#             both_count = 9
-#         elif month == 'July':
-#             n_drivers = 750
-#             revenue_share_count = 150
-#             rental_count = 580
-#             both_count = 20
-#         else:  # June
-#             n_drivers = 820
-#             revenue_share_count = 200
-#             rental_count = 600
-#             both_count = 20
-        
-#         # Create driver IDs for this month
-#         driver_ids = [f'DRV_{month[:3].upper()}_{i:04d}' for i in range(1, n_drivers + 1)]
-        
-#         # Assign DP types
-#         dp_types = (['Revenue Share'] * revenue_share_count + 
-#                    ['Rental'] * rental_count + 
-#                    ['Both'] * both_count)
-        
-#         # If counts don't match, adjust
-#         while len(dp_types) < n_drivers:
-#             dp_types.append('Rental')  # Fill with Rental
-#         dp_types = dp_types[:n_drivers]  # Trim if too many
-        
-#         # Create monthly data
-#         monthly_data = {
-#             'id': driver_ids,
-#             'driver_first_name': [f'Driver_{i}' for i in range(1, n_drivers + 1)],
-#             'driver_surname': [f'{month}_Surname_{i}' for i in range(1, n_drivers + 1)],
-#             'driver_email': [f'driver{i}_{month.lower()}@email.com' for i in range(1, n_drivers + 1)],
-#             'driver_phone': [f'+91{9000000000 + i + month_idx*10000}' for i in range(1, n_drivers + 1)],
-#             'Tenure': np.random.randint(5, 730, n_drivers),
-#             'DP': dp_types,
-#             'Working Plan': dp_types,  # Same as DP for consistency
-#             'total_earnings': np.random.normal(25000 + month_idx*2000, 8000, n_drivers),
-#             'earnings_per_hour': np.random.normal(450 + month_idx*20, 120, n_drivers),
-#             'cash_collected': np.random.normal(22000 + month_idx*1500, 7000, n_drivers),
-#             'trips_per_hour': np.random.normal(2.5, 0.8, n_drivers),
-#             'hours_online': np.random.normal(180 + month_idx*10, 45, n_drivers),
-#             'hours_on_trip': np.random.normal(140 + month_idx*8, 35, n_drivers),
-#             'hours_on_job': np.random.normal(160 + month_idx*8, 40, n_drivers),
-#             'trips_taken': np.random.randint(50, 200, n_drivers),
-#             'confirmation_rate': np.random.uniform(70, 95, n_drivers),
-#             'cancellation_rate': np.random.uniform(2, 15, n_drivers),
-#             'folder': np.random.choice(['Folder_A', 'Folder_B', 'Folder_C'], n_drivers),
-#             'start_date': [f'2024-{month_idx+6:02d}-01'] * n_drivers,  # June=06, July=07, August=08
-#             'end_date': [f'2024-{month_idx+6:02d}-30'] * n_drivers,
-#             'type': np.random.choice(['Full-time', 'Part-time'], n_drivers, p=[0.7, 0.3]),
-#             'created_at': [f'2024-{month_idx+6:02d}-15'] * n_drivers,
-#             'org_id': [1] * n_drivers,
-#             'Month': [month] * n_drivers  # Explicit month column
-#         }
-        
-#         # Convert to DataFrame and append
-#         month_df = pd.DataFrame(monthly_data)
-#         all_data.append(month_df)
-    
-#     # Combine all months
-#     final_df = pd.concat(all_data, ignore_index=True)
-    
-#     # Ensure positive values
-#     final_df['total_earnings'] = np.abs(final_df['total_earnings'])
-#     final_df['earnings_per_hour'] = np.abs(final_df['earnings_per_hour'])
-#     final_df['cash_collected'] = np.abs(final_df['cash_collected'])
-#     final_df['hours_online'] = np.abs(final_df['hours_online'])
-    
-#     return final_df
-
 class DriverDashboard:
     def __init__(self, data):
         self.data = data
@@ -206,7 +122,7 @@ class DriverDashboard:
         self.targets = {
             'earnings': 30000,
             'tenure': 180,
-            'hours_online': 200
+            'avg_hours_per_day': 8  # Updated to avg hours per day
         }
         
     def initialize_session_state(self):
@@ -216,9 +132,9 @@ class DriverDashboard:
         if 'show_raw_data' not in st.session_state:
             st.session_state.show_raw_data = False
         if 'analysis_type' not in st.session_state:
-            st.session_state.analysis_type = 'Tenure vs Net Earnings'
+            st.session_state.analysis_type = 'Tenure vs Avg Online Hours'
         if 'dp_filter' not in st.session_state:
-            st.session_state.dp_filter = 'Both'
+            st.session_state.dp_filter = 'Revenue Share'
     
     def extract_month_from_data(self, data):
         """Extract or create month information from data"""
@@ -298,14 +214,21 @@ class DriverDashboard:
             np.random.seed(42)
             n_records = len(data)
             choices = np.random.choice(
-                ['Rental', 'Revenue Share', 'Both'], 
+                ['Rental', 'Revenue Share'], 
                 size=n_records, 
-                p=[0.65, 0.30, 0.05]
+                p=[0.65, 0.35]  # Removed 'Both' option
             )
             data['DP'] = choices
             data['Working Plan'] = choices
             
         # Ensure other required columns exist with defaults
+        if 'Avg.Online Hours perday' not in data.columns:
+            # If we have hours_online and Tenure, calculate avg hours per day
+            if 'hours_online' in data.columns and 'Tenure' in data.columns:
+                data['Avg.Online Hours perday'] = data['hours_online'] / data['Tenure'].replace(0, 1)
+            else:
+                data['Avg.Online Hours perday'] = np.random.normal(8, 2, len(data))
+                
         if 'hours_online' not in data.columns:
             if 'hours_on_job' in data.columns:
                 data['hours_online'] = data['hours_on_job'] 
@@ -352,7 +275,7 @@ class DriverDashboard:
             return data_with_months
     
     def apply_dp_filter(self, data, dp_filter):
-        """Apply DP Working Plan filter to data - CORRECTED for exact matching"""
+        """Apply DP Working Plan filter to data"""
         if data is None:
             return data
         
@@ -361,14 +284,8 @@ class DriverDashboard:
         if dp_column not in data.columns:
             return data
         
-        if dp_filter == 'Revenue Share':
-            # ONLY include drivers who are EXACTLY 'Revenue Share' (not 'Both')
-            return data[data[dp_column] == 'Revenue Share']
-        elif dp_filter == 'Rental':
-            # ONLY include drivers who are EXACTLY 'Rental' (not 'Both')
-            return data[data[dp_column] == 'Rental']
-        else:  # Both - show all drivers
-            return data
+        # Only filter if a specific DP type is selected
+        return data[data[dp_column] == dp_filter]
     
     def apply_tenure_filter(self, data, tenure_filter):
         """Apply tenure filter to data"""
@@ -427,28 +344,17 @@ class DriverDashboard:
             """Determine primary DP for a driver with multiple records"""
             unique_dps = set(dp_series.dropna().unique())
             
-            # If driver has explicit 'Both' in any record, they're 'Both'
-            if 'Both' in unique_dps:
-                return 'Both'
-            
-            # If driver has both Revenue Share and Rental across different records, they're 'Both'
-            if 'Revenue Share' in unique_dps and 'Rental' in unique_dps:
-                return 'Both'
-            
-            # If driver has both Revenue Share and Both, they're 'Both' 
-            if 'Revenue Share' in unique_dps and 'Both' in unique_dps:
-                return 'Both'
-                
-            # If driver has both Rental and Both, they're 'Both'
-            if 'Rental' in unique_dps and 'Both' in unique_dps:
-                return 'Both'
-            
-            # Otherwise, return the most common single DP
-            dp_counts = dp_series.value_counts()
-            if len(dp_counts) > 0:
-                return dp_counts.index[0]
+            # If driver has both Revenue Share and Rental across different records, prioritize Revenue Share
+            if 'Revenue Share' in unique_dps:
+                return 'Revenue Share'
+            elif 'Rental' in unique_dps:
+                return 'Rental'
             else:
-                return 'Unknown'
+                dp_counts = dp_series.value_counts()
+                if len(dp_counts) > 0:
+                    return dp_counts.index[0]
+                else:
+                    return 'Unknown'
         
         # Identify columns and their appropriate aggregation methods
         agg_rules = {}
@@ -466,7 +372,7 @@ class DriverDashboard:
                         'hours_on_trip', 'hours_on_job']:
                 agg_rules[col] = 'sum'    # Sum across all records for this driver
             elif col in ['Tenure', 'earnings_per_hour', 'trips_per_hour', 'confirmation_rate', 
-                        'cancellation_rate']:
+                        'cancellation_rate', 'Avg.Online Hours perday']:
                 agg_rules[col] = 'mean'   # Average across records
             else:
                 # Default to first for any other columns
@@ -499,7 +405,7 @@ class DriverDashboard:
             return None, None
     
     def create_interactive_scatter_plot(self, data, title, analysis_type, selected_month, dp_filter, tenure_filter, show_targets=True, point_size=8, show_trend=False):
-        """Create scatter plot with proper unique driver filtering"""
+        """Create scatter plot with updated analysis types using Avg.Online Hours perday"""
         try:
             if data is None or len(data) == 0:
                 st.warning(f"No data available for {title}")
@@ -514,15 +420,15 @@ class DriverDashboard:
                 y_col = 'total_earnings'
                 x_label = 'Tenure (Days)'
                 y_label = 'Total Earnings (₹)'
-            elif analysis_type == 'Tenure vs Online Hours':
-                x_col = 'Tenure'
-                y_col = 'hours_online'
-                x_label = 'Tenure (Days)'
-                y_label = 'Hours Online'
-            elif analysis_type == 'Online Hours vs Net Earnings':
-                x_col = 'hours_online'
+            elif analysis_type == 'Tenure vs Avg Online Hours':
+                x_col = 'Avg.Online Hours perday'
+                y_col = 'Tenure'
+                x_label = 'Avg Online Hours per Day (hrs/day)'
+                y_label = 'Tenure (Days)'
+            elif analysis_type == 'Avg Online Hours vs Net Earnings':
+                x_col = 'Avg.Online Hours perday'
                 y_col = 'total_earnings'
-                x_label = 'Hours Online'
+                x_label = 'Avg Online Hours per Day (hrs/day)'
                 y_label = 'Total Earnings (₹)'
             
             # Clean data
@@ -535,8 +441,6 @@ class DriverDashboard:
             # Create title with accurate driver count
             unique_drivers = len(clean_data)
             month_text = f"{selected_month} - " if selected_month != 'All' else ""
-            main_title = f"{month_text}Correlation Analysis ({dp_filter} - {tenure_filter}) - Unique Drivers: {len(unique_data)}"
-            
             dp_column = 'DP' if 'DP' in unique_data.columns else 'Working Plan'
             plot_title = f"{month_text}{title} ({dp_filter} - {tenure_filter}) - Unique Drivers: {unique_drivers}"
 
@@ -547,58 +451,48 @@ class DriverDashboard:
                 clean_data.get('driver_surname', '').astype(str).str.strip().fillna('')
             ).str.strip()
             clean_data['__name'] = clean_data['__name'].where(clean_data['__name'].str.len() > 0, clean_data.get('id', ''))
+            
             if 'Tenure' in clean_data.columns:
                 tenure_safe = clean_data['Tenure'].replace(0, np.nan)
             else:
                 tenure_safe = np.nan
-            # Monthly totals as-is from columns
+            
+            # Get values
+            avg_hours_per_day = clean_data.get('Avg.Online Hours perday', pd.Series([np.nan]*len(clean_data)))
             hours_month = clean_data.get('hours_online', pd.Series([np.nan]*len(clean_data)))
             trips_month = clean_data.get('trips_taken', pd.Series([np.nan]*len(clean_data)))
             earnings_month = clean_data.get('total_earnings', pd.Series([np.nan]*len(clean_data)))
-            # Per-day derived values
-            hours_per_day = hours_month.div(tenure_safe).round(2)
             trips_per_day = trips_month.div(tenure_safe).round(2)
-            earnings_per_day = earnings_month.div(tenure_safe).round(2)
 
-            if dp_filter == 'Both' and dp_column in unique_data.columns:
-                fig = px.scatter(
-                    clean_data,
-                    x=x_col,
-                    y=y_col,
-                    color=dp_column,
-                    title=plot_title,
-                    labels={x_col: x_label, y_col: y_label},
-                    color_discrete_map={'Revenue Share': '#1f77b4', 'Rental': '#ff7f0e', 'Both': '#2ca02c'}
-                )
-            else:
-                color = {'Revenue Share': '#1f77b4', 'Rental': '#ff7f0e', 'Both': '#2ca02c'}.get(dp_filter, '#1f77b4')
-                fig = px.scatter(
-                    clean_data,
-                    x=x_col,
-                    y=y_col,
-                    title=plot_title,
-                    labels={x_col: x_label, y_col: y_label},
-                    color_discrete_sequence=[color]
-                )
+            # Create scatter plot with single color since we only show one DP type
+            color = {'Revenue Share': '#1f77b4', 'Rental': '#ff7f0e'}.get(dp_filter, '#1f77b4')
+            fig = px.scatter(
+                clean_data,
+                x=x_col,
+                y=y_col,
+                title=plot_title,
+                labels={x_col: x_label, y_col: y_label},
+                color_discrete_sequence=[color]
+            )
 
             # Configure hover templates per analysis type
-            if analysis_type == 'Tenure vs Online Hours':
+            if analysis_type == 'Tenure vs Avg Online Hours':
                 fig.update_traces(
                     customdata=np.stack([
                         clean_data['__name'],
                         clean_data.get(dp_column, pd.Series(['']*len(clean_data))),
-                        hours_month,
-                        hours_per_day,
                         clean_data.get('Tenure', pd.Series([np.nan]*len(clean_data))),
+                        avg_hours_per_day,
+                        hours_month,
                         trips_per_day,
                         trips_month,
                     ], axis=-1),
                     hovertemplate=(
                         '<b>%{customdata[0]}</b><br>'
                         '<b>DP working plan:</b> %{customdata[1]}<br>'
-                        '<b>Total online Hours per month:</b> %{customdata[2]:.2f}<br>'
-                        '<b>Avg online Hours per day:</b> %{customdata[3]:.2f}<br>'
-                        '<b>Tenure:</b> %{customdata[4]:.0f} days<br>'
+                        '<b>Tenure:</b> %{customdata[2]:.0f} days<br>'
+                        '<b>Avg online hours per day:</b> %{customdata[3]:.2f} hrs/day<br>'
+                        '<b>Total online hours per month:</b> %{customdata[4]:.2f} hrs<br>'
                         '<b>Total no.of trips per day:</b> %{customdata[5]:.2f}<br>'
                         '<b>Total no.of trips per month:</b> %{customdata[6]:.0f}<br>'
                         '<extra></extra>'
@@ -620,18 +514,18 @@ class DriverDashboard:
                         '<extra></extra>'
                     )
                 )
-            elif analysis_type == 'Online Hours vs Net Earnings':
+            elif analysis_type == 'Avg Online Hours vs Net Earnings':
                 fig.update_traces(
                     customdata=np.stack([
                         clean_data['__name'],
-                        hours_month,
+                        avg_hours_per_day,
                         earnings_month,
                         clean_data.get('Tenure', pd.Series([np.nan]*len(clean_data))),
                         clean_data.get(dp_column, pd.Series(['']*len(clean_data))),
                     ], axis=-1),
                     hovertemplate=(
                         '<b>%{customdata[0]}</b><br>'
-                        '<b>Total Online Hours of that month:</b> %{customdata[1]:.2f}<br>'
+                        '<b>Avg online hours per day:</b> %{customdata[1]:.2f} hrs/day<br>'
                         '<b>Total Earnings of that month:</b> ₹%{customdata[2]:,.2f}<br>'
                         '<b>Tenure:</b> %{customdata[3]:.0f} days<br>'
                         '<b>DP working plan:</b> %{customdata[4]}<br>'
@@ -679,7 +573,7 @@ class DriverDashboard:
             return None
     
     def display_statistics(self, data, title, analysis_type, selected_month, dp_filter, tenure_filter):
-        """Display statistics for filtered data"""
+        """Display statistics for filtered data with updated metrics"""
         try:
             if data is None or len(data) == 0:
                 st.warning(f"No valid data for {title}")
@@ -714,29 +608,27 @@ class DriverDashboard:
                 st.markdown('</div>', unsafe_allow_html=True)
             
             with col4:
-                if 'hours_online' in unique_data.columns:
-                    # Average total online hours per month per unique driver
-                    avg_hours = unique_data['hours_online'].mean()
+                if 'Avg.Online Hours perday' in unique_data.columns:
+                    # Average online hours per day per unique driver
+                    avg_hours_per_day = unique_data['Avg.Online Hours perday'].mean()
                     st.markdown(f'<div class="metric-container">', unsafe_allow_html=True)
-                    st.metric("Avg Total Online Hours per Month", f"{avg_hours:.1f} hrs")
+                    st.metric("Avg Online Hours per Day", f"{avg_hours_per_day:.2f} hrs/day")
                     st.markdown('</div>', unsafe_allow_html=True)
-            
-            # Target achievement removed per request
             
         except Exception as e:
             st.error(f"Error displaying statistics: {str(e)}")
     
     def analysis_type_selector(self):
-        """Analysis type selection"""
+        """Analysis type selection with updated options"""
         st.markdown('<div class="analysis-selector">', unsafe_allow_html=True)
         st.markdown("### Analysis Type Selection")
         
-        analysis_options = ['Tenure vs Net Earnings', 'Tenure vs Online Hours', 'Online Hours vs Net Earnings']
+        analysis_options = ['Tenure vs Net Earnings', 'Tenure vs Avg Online Hours', 'Avg Online Hours vs Net Earnings']
         
         selected_analysis = st.radio(
             "Select analysis type:",
             analysis_options,
-            index=analysis_options.index(st.session_state.get('analysis_type', 'Tenure vs Net Earnings')),
+            index=analysis_options.index(st.session_state.get('analysis_type', 'Tenure vs Avg Online Hours')),
             horizontal=True
         )
         
@@ -748,7 +640,7 @@ class DriverDashboard:
         return selected_analysis
     
     def sidebar_controls(self, analysis_type):
-        """Sidebar controls"""
+        """Sidebar controls with updated DP options"""
         st.sidebar.markdown("### Dashboard Controls")
         
         # Month selection
@@ -763,13 +655,13 @@ class DriverDashboard:
             help="Select which month to analyze"
         )
         
-        # DP Working Plan selection
+        # DP Working Plan selection (removed 'Both' option)
         st.sidebar.markdown("#### Select DP Working Plan")
-        dp_options = ['Both', 'Revenue Share', 'Rental']
+        dp_options = ['Revenue Share', 'Rental']  # Removed 'Both'
         dp_filter = st.sidebar.selectbox(
             "Choose DP Working Plan:",
             dp_options,
-            index=0,  # Default to Both
+            index=0,  # Default to Revenue Share
             help="Select which DP Working Plan to analyze"
         )
         
@@ -787,9 +679,6 @@ class DriverDashboard:
         show_targets = st.sidebar.checkbox("Show Target Lines", value=True)
         show_trend = st.sidebar.checkbox("Show Trend Line", value=False)
         point_size = st.sidebar.slider("Point Size", 5, 15, 8)
-        
-        # Correlation options
-        show_correlation = False
         
         # Data view options
         st.sidebar.markdown("#### Data View")
@@ -820,11 +709,10 @@ class DriverDashboard:
                 return
         
         # Step 2: DP filter  
-        if controls['dp_filter'] != 'Both':
-            filtered_data = self.apply_dp_filter(filtered_data, controls['dp_filter'])
-            if filtered_data is None or len(filtered_data) == 0:
-                st.warning(f"No data available for {controls['dp_filter']} in {controls['selected_month']}")
-                return
+        filtered_data = self.apply_dp_filter(filtered_data, controls['dp_filter'])
+        if filtered_data is None or len(filtered_data) == 0:
+            st.warning(f"No data available for {controls['dp_filter']} in {controls['selected_month']}")
+            return
         
         # Step 3: Tenure filter
         if controls['tenure_filter'] != 'Both':
@@ -843,27 +731,24 @@ class DriverDashboard:
                 - **Target Lines** (dashed) show performance benchmarks
                 - **Correlation Line** (when enabled) shows relationship strength
                 - Each point represents **one unique driver** from the selected month/filter
-                - **Color coding** differentiates DP Working Plans when viewing all schemes
                 """)
-            elif analysis_type == 'Tenure vs Online Hours':
+            elif analysis_type == 'Tenure vs Avg Online Hours':
                 st.markdown("""
-                **Tenure vs Online Hours Features:**
-                - **Hover** over points for detailed driver information including online hours, tenure, trips per day/month
+                **Tenure vs Avg Online Hours Features:**
+                - **Hover** over points for detailed driver information including avg online hours per day, total online hours per month, tenure, trips per day/month
                 - **Zoom** and **pan** for better visibility of data clusters
                 - **Target Lines** (dashed) show performance benchmarks
                 - **Correlation Line** (when enabled) shows relationship strength
                 - Each point represents **one unique driver** from the selected month/filter
-                - **Color coding** differentiates DP Working Plans when viewing all schemes
                 """)
-            elif analysis_type == 'Online Hours vs Net Earnings':
+            elif analysis_type == 'Avg Online Hours vs Net Earnings':
                 st.markdown("""
-                **Online Hours vs Net Earnings Features:**
-                - **Hover** over points for detailed driver information including driver name, total online hours, total earnings, tenure, and DP working plan
+                **Avg Online Hours vs Net Earnings Features:**
+                - **Hover** over points for detailed driver information including driver name, avg online hours per day, total earnings, tenure, and DP working plan
                 - **Zoom** and **pan** for better visibility of data clusters
                 - **Target Lines** (dashed) show performance benchmarks
                 - **Correlation Line** (when enabled) shows relationship strength
                 - Each point represents **one unique driver** from the selected month/filter
-                - **Color coding** differentiates DP Working Plans when viewing all schemes
                 """)
         
         # Display statistics
@@ -902,7 +787,7 @@ def main():
         st.markdown('<div class="main-header">Driver Performance Dashboard</div>', unsafe_allow_html=True)
         
         # Background data loading (no visible upload UI)
-        default_path = "data/Performance_No_Blank_Tenure_20250922_041646.csv"
+        default_path = "data/Performance_With_AvgOnlineHours.csv"
         
         data = None
         if os.path.exists(default_path):
@@ -929,7 +814,7 @@ def main():
         dashboard.data = data
         
         # Validate required columns
-        required_columns = ['driver_email', 'driver_phone', 'Tenure', 'total_earnings']
+        required_columns = ['driver_email', 'driver_phone', 'Tenure', 'total_earnings', 'Avg.Online Hours perday']
         missing_columns = [col for col in required_columns if col not in data.columns]
         
         if missing_columns:
@@ -941,8 +826,6 @@ def main():
         if 'driver_email' not in data.columns and 'driver_phone' not in data.columns:
             st.error("Cannot identify unique drivers: both driver_email and driver_phone columns are missing")
             st.stop()
-        
-        # Data loaded message already shown above
         
         # Data preview and verification
         with st.expander("Data Preview & Monthly Breakdown", expanded=False):
@@ -966,23 +849,21 @@ def main():
                     else:
                         unique_drivers = len(month_data)  # Fallback
                     
-                    # DP breakdown
+                    # DP breakdown (removed 'Both' option)
                     dp_column = 'DP' if 'DP' in month_data.columns else 'Working Plan'
                     if dp_column in month_data.columns:
                         dp_counts = month_data[dp_column].value_counts()
                         revenue_share = dp_counts.get('Revenue Share', 0)
                         rental = dp_counts.get('Rental', 0) 
-                        both = dp_counts.get('Both', 0)
                     else:
-                        revenue_share = rental = both = 0
+                        revenue_share = rental = 0
                     
                     monthly_stats.append({
                         'Month': month,
                         'Total Records': len(month_data),
                         'Unique Drivers (estimated)': unique_drivers,
                         'Revenue Share Records': revenue_share,
-                        'Rental Records': rental,
-                        'Both Records': both
+                        'Rental Records': rental
                     })
                 
                 st.dataframe(pd.DataFrame(monthly_stats), use_container_width=True)
@@ -1001,8 +882,8 @@ def main():
                     st.write(f"- Avg Earnings: {format_currency(data['total_earnings'].mean())}")
                 if 'Tenure' in data.columns:
                     st.write(f"- Avg Tenure: {data['Tenure'].mean():.1f} days")
-                if 'hours_online' in data.columns:
-                    st.write(f"- Avg Hours Online: {data['hours_online'].mean():.1f}")
+                if 'Avg.Online Hours perday' in data.columns:
+                    st.write(f"- Avg Online Hours per Day: {data['Avg.Online Hours perday'].mean():.2f} hrs/day")
         
         # Initialize dashboard
         dashboard = DriverDashboard(data)
@@ -1042,8 +923,6 @@ def main():
                 )
             else:
                 st.info("No data matches current filters")
-        
-        # Footer removed per request
         
     except Exception as e:
         st.error(f"Application error: {str(e)}")

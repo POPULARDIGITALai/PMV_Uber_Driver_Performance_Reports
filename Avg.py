@@ -122,7 +122,7 @@ class DriverDashboard:
         self.targets = {
             'earnings': 30000,
             'tenure': 180,
-            'avg_hours_per_day': 8  # Updated to avg hours per day
+            'avg_hours_per_day': 8
         }
         
     def initialize_session_state(self):
@@ -405,7 +405,7 @@ class DriverDashboard:
             return None, None
     
     def create_interactive_scatter_plot(self, data, title, analysis_type, selected_month, dp_filter, tenure_filter, show_targets=True, point_size=8, show_trend=False):
-        """Create scatter plot with updated analysis types using Avg.Online Hours perday"""
+        """Create scatter plot with updated analysis types including Total Online Hours vs Net Earnings"""
         try:
             if data is None or len(data) == 0:
                 st.warning(f"No data available for {title}")
@@ -425,6 +425,11 @@ class DriverDashboard:
                 y_col = 'Tenure'
                 x_label = 'Avg Online Hours per Day (hrs/day)'
                 y_label = 'Tenure (Days)'
+            elif analysis_type == 'Total Online Hours vs Net Earnings':
+                x_col = 'hours_online'
+                y_col = 'total_earnings'
+                x_label = 'Total Online Hours per Month'
+                y_label = 'Total Earnings (₹)'
             elif analysis_type == 'Avg Online Hours vs Net Earnings':
                 x_col = 'Avg.Online Hours perday'
                 y_col = 'total_earnings'
@@ -514,6 +519,24 @@ class DriverDashboard:
                         '<extra></extra>'
                     )
                 )
+            elif analysis_type == 'Total Online Hours vs Net Earnings':
+                fig.update_traces(
+                    customdata=np.stack([
+                        clean_data['__name'],
+                        hours_month,
+                        earnings_month,
+                        clean_data.get('Tenure', pd.Series([np.nan]*len(clean_data))),
+                        clean_data.get(dp_column, pd.Series(['']*len(clean_data))),
+                    ], axis=-1),
+                    hovertemplate=(
+                        '<b>%{customdata[0]}</b><br>'
+                        '<b>Total Online Hours per month:</b> %{customdata[1]:.2f} hrs<br>'
+                        '<b>Total Earnings per month:</b> ₹%{customdata[2]:,.2f}<br>'
+                        '<b>Tenure:</b> %{customdata[3]:.0f} days<br>'
+                        '<b>DP working plan:</b> %{customdata[4]}<br>'
+                        '<extra></extra>'
+                    )
+                )
             elif analysis_type == 'Avg Online Hours vs Net Earnings':
                 fig.update_traces(
                     customdata=np.stack([
@@ -526,7 +549,7 @@ class DriverDashboard:
                     hovertemplate=(
                         '<b>%{customdata[0]}</b><br>'
                         '<b>Avg online hours per day:</b> %{customdata[1]:.2f} hrs/day<br>'
-                        '<b>Total Earnings of that month:</b> ₹%{customdata[2]:,.2f}<br>'
+                        '<b>Total Earnings per month:</b> ₹%{customdata[2]:,.2f}<br>'
                         '<b>Tenure:</b> %{customdata[3]:.0f} days<br>'
                         '<b>DP working plan:</b> %{customdata[4]}<br>'
                         '<extra></extra>'
@@ -619,17 +642,22 @@ class DriverDashboard:
             st.error(f"Error displaying statistics: {str(e)}")
     
     def analysis_type_selector(self):
-        """Analysis type selection with updated options"""
+        """Analysis type selection with updated options including Total Online Hours vs Net Earnings"""
         st.markdown('<div class="analysis-selector">', unsafe_allow_html=True)
         st.markdown("### Analysis Type Selection")
         
-        analysis_options = ['Tenure vs Net Earnings', 'Tenure vs Avg Online Hours', 'Avg Online Hours vs Net Earnings']
+        analysis_options = [
+            'Tenure vs Net Earnings', 
+            'Tenure vs Avg Online Hours', 
+            'Total Online Hours vs Net Earnings',
+            'Avg Online Hours vs Net Earnings'
+        ]
         
         selected_analysis = st.radio(
             "Select analysis type:",
             analysis_options,
             index=analysis_options.index(st.session_state.get('analysis_type', 'Tenure vs Avg Online Hours')),
-            horizontal=True
+            horizontal=False
         )
         
         if selected_analysis != st.session_state.get('analysis_type'):
@@ -741,6 +769,15 @@ class DriverDashboard:
                 - **Correlation Line** (when enabled) shows relationship strength
                 - Each point represents **one unique driver** from the selected month/filter
                 """)
+            elif analysis_type == 'Total Online Hours vs Net Earnings':
+                st.markdown("""
+                **Total Online Hours vs Net Earnings Features:**
+                - **Hover** over points for detailed driver information including total online hours per month, total earnings, tenure, and DP working plan
+                - **Zoom** and **pan** for better visibility of data clusters
+                - **Target Lines** (dashed) show performance benchmarks
+                - **Correlation Line** (when enabled) shows relationship strength
+                - Each point represents **one unique driver** from the selected month/filter
+                """)
             elif analysis_type == 'Avg Online Hours vs Net Earnings':
                 st.markdown("""
                 **Avg Online Hours vs Net Earnings Features:**
@@ -814,7 +851,7 @@ def main():
         dashboard.data = data
         
         # Validate required columns
-        required_columns = ['driver_email', 'driver_phone', 'Tenure', 'total_earnings', 'Avg.Online Hours perday']
+        required_columns = ['driver_email', 'driver_phone', 'Tenure', 'total_earnings', 'Avg.Online Hours perday', 'hours_online']
         missing_columns = [col for col in required_columns if col not in data.columns]
         
         if missing_columns:
@@ -884,6 +921,8 @@ def main():
                     st.write(f"- Avg Tenure: {data['Tenure'].mean():.1f} days")
                 if 'Avg.Online Hours perday' in data.columns:
                     st.write(f"- Avg Online Hours per Day: {data['Avg.Online Hours perday'].mean():.2f} hrs/day")
+                if 'hours_online' in data.columns:
+                    st.write(f"- Avg Total Online Hours: {data['hours_online'].mean():.2f} hrs")
         
         # Initialize dashboard
         dashboard = DriverDashboard(data)

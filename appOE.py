@@ -115,89 +115,89 @@ def load_driver_data(file_path):
         st.error(f"Error loading file: {str(e)}")
         return None
 
-@st.cache_data
-def create_sample_data():
-    """Create sample data with proper monthly structure"""
-    np.random.seed(42)
+# @st.cache_data
+# def create_sample_data():
+#     """Create sample data with proper monthly structure"""
+#     np.random.seed(42)
     
-    # Create data for 3 months with unique drivers
-    months = ['June', 'July', 'August']
-    all_data = []
+#     # Create data for 3 months with unique drivers
+#     months = ['June', 'July', 'August']
+#     all_data = []
     
-    for month_idx, month in enumerate(months):
-        # Different number of drivers per month to simulate real scenario
-        if month == 'August':
-            n_drivers = 867  # Your example
-            revenue_share_count = 128
-            rental_count = 730
-            both_count = 9
-        elif month == 'July':
-            n_drivers = 750
-            revenue_share_count = 150
-            rental_count = 580
-            both_count = 20
-        else:  # June
-            n_drivers = 820
-            revenue_share_count = 200
-            rental_count = 600
-            both_count = 20
+#     for month_idx, month in enumerate(months):
+#         # Different number of drivers per month to simulate real scenario
+#         if month == 'August':
+#             n_drivers = 867  # Your example
+#             revenue_share_count = 128
+#             rental_count = 730
+#             both_count = 9
+#         elif month == 'July':
+#             n_drivers = 750
+#             revenue_share_count = 150
+#             rental_count = 580
+#             both_count = 20
+#         else:  # June
+#             n_drivers = 820
+#             revenue_share_count = 200
+#             rental_count = 600
+#             both_count = 20
         
-        # Create driver IDs for this month
-        driver_ids = [f'DRV_{month[:3].upper()}_{i:04d}' for i in range(1, n_drivers + 1)]
+#         # Create driver IDs for this month
+#         driver_ids = [f'DRV_{month[:3].upper()}_{i:04d}' for i in range(1, n_drivers + 1)]
         
-        # Assign DP types
-        dp_types = (['Revenue Share'] * revenue_share_count + 
-                   ['Rental'] * rental_count + 
-                   ['Both'] * both_count)
+#         # Assign DP types
+#         dp_types = (['Revenue Share'] * revenue_share_count + 
+#                    ['Rental'] * rental_count + 
+#                    ['Both'] * both_count)
         
-        # If counts don't match, adjust
-        while len(dp_types) < n_drivers:
-            dp_types.append('Rental')  # Fill with Rental
-        dp_types = dp_types[:n_drivers]  # Trim if too many
+#         # If counts don't match, adjust
+#         while len(dp_types) < n_drivers:
+#             dp_types.append('Rental')  # Fill with Rental
+#         dp_types = dp_types[:n_drivers]  # Trim if too many
         
-        # Create monthly data
-        monthly_data = {
-            'id': driver_ids,
-            'driver_first_name': [f'Driver_{i}' for i in range(1, n_drivers + 1)],
-            'driver_surname': [f'{month}_Surname_{i}' for i in range(1, n_drivers + 1)],
-            'driver_email': [f'driver{i}_{month.lower()}@email.com' for i in range(1, n_drivers + 1)],
-            'driver_phone': [f'+91{9000000000 + i + month_idx*10000}' for i in range(1, n_drivers + 1)],
-            'Tenure': np.random.randint(5, 730, n_drivers),
-            'DP': dp_types,
-            'Working Plan': dp_types,  # Same as DP for consistency
-            'total_earnings': np.random.normal(25000 + month_idx*2000, 8000, n_drivers),
-            'earnings_per_hour': np.random.normal(450 + month_idx*20, 120, n_drivers),
-            'cash_collected': np.random.normal(22000 + month_idx*1500, 7000, n_drivers),
-            'trips_per_hour': np.random.normal(2.5, 0.8, n_drivers),
-            'hours_online': np.random.normal(180 + month_idx*10, 45, n_drivers),
-            'hours_on_trip': np.random.normal(140 + month_idx*8, 35, n_drivers),
-            'hours_on_job': np.random.normal(160 + month_idx*8, 40, n_drivers),
-            'trips_taken': np.random.randint(50, 200, n_drivers),
-            'confirmation_rate': np.random.uniform(70, 95, n_drivers),
-            'cancellation_rate': np.random.uniform(2, 15, n_drivers),
-            'folder': np.random.choice(['Folder_A', 'Folder_B', 'Folder_C'], n_drivers),
-            'start_date': [f'2024-{month_idx+6:02d}-01'] * n_drivers,  # June=06, July=07, August=08
-            'end_date': [f'2024-{month_idx+6:02d}-30'] * n_drivers,
-            'type': np.random.choice(['Full-time', 'Part-time'], n_drivers, p=[0.7, 0.3]),
-            'created_at': [f'2024-{month_idx+6:02d}-15'] * n_drivers,
-            'org_id': [1] * n_drivers,
-            'Month': [month] * n_drivers  # Explicit month column
-        }
+#         # Create monthly data
+#         monthly_data = {
+#             'id': driver_ids,
+#             'driver_first_name': [f'Driver_{i}' for i in range(1, n_drivers + 1)],
+#             'driver_surname': [f'{month}_Surname_{i}' for i in range(1, n_drivers + 1)],
+#             'driver_email': [f'driver{i}_{month.lower()}@email.com' for i in range(1, n_drivers + 1)],
+#             'driver_phone': [f'+91{9000000000 + i + month_idx*10000}' for i in range(1, n_drivers + 1)],
+#             'Tenure': np.random.randint(5, 730, n_drivers),
+#             'DP': dp_types,
+#             'Working Plan': dp_types,  # Same as DP for consistency
+#             'total_earnings': np.random.normal(25000 + month_idx*2000, 8000, n_drivers),
+#             'earnings_per_hour': np.random.normal(450 + month_idx*20, 120, n_drivers),
+#             'cash_collected': np.random.normal(22000 + month_idx*1500, 7000, n_drivers),
+#             'trips_per_hour': np.random.normal(2.5, 0.8, n_drivers),
+#             'hours_online': np.random.normal(180 + month_idx*10, 45, n_drivers),
+#             'hours_on_trip': np.random.normal(140 + month_idx*8, 35, n_drivers),
+#             'hours_on_job': np.random.normal(160 + month_idx*8, 40, n_drivers),
+#             'trips_taken': np.random.randint(50, 200, n_drivers),
+#             'confirmation_rate': np.random.uniform(70, 95, n_drivers),
+#             'cancellation_rate': np.random.uniform(2, 15, n_drivers),
+#             'folder': np.random.choice(['Folder_A', 'Folder_B', 'Folder_C'], n_drivers),
+#             'start_date': [f'2024-{month_idx+6:02d}-01'] * n_drivers,  # June=06, July=07, August=08
+#             'end_date': [f'2024-{month_idx+6:02d}-30'] * n_drivers,
+#             'type': np.random.choice(['Full-time', 'Part-time'], n_drivers, p=[0.7, 0.3]),
+#             'created_at': [f'2024-{month_idx+6:02d}-15'] * n_drivers,
+#             'org_id': [1] * n_drivers,
+#             'Month': [month] * n_drivers  # Explicit month column
+#         }
         
-        # Convert to DataFrame and append
-        month_df = pd.DataFrame(monthly_data)
-        all_data.append(month_df)
+#         # Convert to DataFrame and append
+#         month_df = pd.DataFrame(monthly_data)
+#         all_data.append(month_df)
     
-    # Combine all months
-    final_df = pd.concat(all_data, ignore_index=True)
+#     # Combine all months
+#     final_df = pd.concat(all_data, ignore_index=True)
     
-    # Ensure positive values
-    final_df['total_earnings'] = np.abs(final_df['total_earnings'])
-    final_df['earnings_per_hour'] = np.abs(final_df['earnings_per_hour'])
-    final_df['cash_collected'] = np.abs(final_df['cash_collected'])
-    final_df['hours_online'] = np.abs(final_df['hours_online'])
+#     # Ensure positive values
+#     final_df['total_earnings'] = np.abs(final_df['total_earnings'])
+#     final_df['earnings_per_hour'] = np.abs(final_df['earnings_per_hour'])
+#     final_df['cash_collected'] = np.abs(final_df['cash_collected'])
+#     final_df['hours_online'] = np.abs(final_df['hours_online'])
     
-    return final_df
+#     return final_df
 
 class DriverDashboard:
     def __init__(self, data):

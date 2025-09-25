@@ -902,7 +902,8 @@ def main():
         st.markdown('<div class="main-header">Driver Performance Dashboard</div>', unsafe_allow_html=True)
         
         # Background data loading (no visible upload UI)
-        default_path = r"C:\Users\user\Downloads\Uber\Driver Performance\Performance_No_Blank_Tenure_20250922_041646.csv"
+        default_path = "data/Performance_No_Blank_Tenure_20250922_041646.csv"
+        
         data = None
         if os.path.exists(default_path):
             with st.spinner("Loading data..."):

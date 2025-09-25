@@ -909,7 +909,7 @@ def main():
                 data = load_driver_data(default_path)
         else:
             with st.spinner("Creating sample data..."):
-                data = create_sample_data()
+                data = load_driver_data(default_path)
         
         if data is None:
             st.error("No data available. Please check the data source.")

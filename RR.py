@@ -299,7 +299,7 @@ class DriverDashboard:
             return data
     
     def get_unique_drivers_data(self, data, groupby_month=False):
-        """Get unique drivers data - COMPLETELY FIXED VERSION"""
+        """Get unique drivers data - FIXED VERSION"""
         if data is None:
             return data
         
@@ -337,26 +337,49 @@ class DriverDashboard:
                 data = data.drop('unique_driver_id', axis=1)
             return data
         
-        # CRITICAL FIX: Use index-based selection for consistent record selection
-        def select_best_record(group):
-            """Select the most complete/recent record for each driver"""
-            # Sort by completeness (non-null values) and recency if available
-            if 'created_at' in group.columns:
-                try:
-                    group['created_at'] = pd.to_datetime(group['created_at'], errors='coerce')
-                    # Select most recent record
-                    return group.loc[group['created_at'].idxmax()]
-                except:
-                    pass
+        # CRITICAL FIX: Use proper aggregation that maintains data integrity
+        def get_primary_dp(dp_series):
+            """Determine primary DP for a driver with multiple records"""
+            unique_dps = set(dp_series.dropna().unique())
             
-            # If no date column, select record with most non-null values
-            non_null_counts = group.count(axis=1)
-            best_idx = non_null_counts.idxmax()
-            return group.loc[best_idx]
+            if 'Revenue Share' in unique_dps:
+                return 'Revenue Share'
+            elif 'Rental' in unique_dps:
+                return 'Rental'
+            else:
+                dp_counts = dp_series.value_counts()
+                if len(dp_counts) > 0:
+                    return dp_counts.index[0]
+                else:
+                    return 'Unknown'
+        
+        # FIXED aggregation rules - use LATEST/MOST RECENT values for key metrics
+        agg_rules = {}
+        for col in data.columns:
+            if col == groupby_col or col == 'unique_driver_id':
+                continue
+            elif col in ['DP', 'Working Plan', 'DP Working Plan']:
+                agg_rules[col] = get_primary_dp
+            elif col in ['id', 'driver_first_name', 'driver_surname', 'driver_email', 'driver_phone', 
+                        'folder', 'start_date', 'type', 'created_at', 'org_id', 'Month']:
+                agg_rules[col] = 'first'
+            elif col in ['end_date']:
+                agg_rules[col] = 'last'
+            elif col in ['total_earnings', 'cash_collected', 'trips_taken', 'hours_online', 
+                        'hours_on_trip', 'hours_on_job']:
+                # CRITICAL FIX: Use 'last' instead of 'sum' to get the most recent/final values
+                agg_rules[col] = 'last'
+            elif col in ['Tenure', 'Avg.Online Hours perday']:
+                # CRITICAL FIX: Use 'last' to get the most recent calculated values
+                agg_rules[col] = 'last'
+            elif col in ['earnings_per_hour', 'trips_per_hour', 'confirmation_rate', 'cancellation_rate']:
+                # Use mean for rates and per-hour metrics
+                agg_rules[col] = 'mean'
+            else:
+                agg_rules[col] = 'last'
         
         try:
-            # FIXED: Use apply to select one complete record per driver
-            unique_data = data.groupby(groupby_col).apply(select_best_record).reset_index(drop=True)
+            unique_data = data.groupby(groupby_col).agg(agg_rules).reset_index()
             
             if 'unique_driver_id' in unique_data.columns:
                 unique_data = unique_data.drop('unique_driver_id', axis=1)
@@ -380,7 +403,7 @@ class DriverDashboard:
             return None, None
     
     def create_interactive_scatter_plot(self, data, title, analysis_type, selected_month, dp_filter, tenure_filter, show_targets=True, point_size=8, show_trend=False):
-        """Create scatter plot with PERFECTLY ALIGNED dot positioning - FINAL FIX"""
+        """Create scatter plot with CORRECTED dot positioning"""
         try:
             if data is None or len(data) == 0:
                 st.warning(f"No data available for {title}")
@@ -411,119 +434,170 @@ class DriverDashboard:
                 x_label = 'Avg Online Hours per Day (hrs/day)'
                 y_label = 'Total Earnings (₹)'
             
-            # CRITICAL FIX: Ensure we're using the exact same values for plotting AND hover
-            plot_data = unique_data.copy()
-            
-            # Ensure x and y columns exist and are numeric
-            if x_col not in plot_data.columns or y_col not in plot_data.columns:
-                st.error(f"Required columns {x_col} or {y_col} not found in data")
-                return None
+            # CRITICAL FIX: Clean and validate data more rigorously
+            clean_data = unique_data.dropna(subset=[x_col, y_col]).copy()
             
             # Convert to numeric and handle any conversion errors
-            plot_data[x_col] = pd.to_numeric(plot_data[x_col], errors='coerce')
-            plot_data[y_col] = pd.to_numeric(plot_data[y_col], errors='coerce')
+            clean_data[x_col] = pd.to_numeric(clean_data[x_col], errors='coerce')
+            clean_data[y_col] = pd.to_numeric(clean_data[y_col], errors='coerce')
             
             # Remove any rows where conversion failed
-            initial_count = len(plot_data)
-            plot_data = plot_data.dropna(subset=[x_col, y_col])
-            final_count = len(plot_data)
-            
-            if final_count < initial_count:
-                st.info(f"Removed {initial_count - final_count} records with invalid data")
+            clean_data = clean_data.dropna(subset=[x_col, y_col])
             
             # Remove any infinite or extremely large values
-            plot_data = plot_data[np.isfinite(plot_data[x_col]) & np.isfinite(plot_data[y_col])]
+            clean_data = clean_data[np.isfinite(clean_data[x_col]) & np.isfinite(clean_data[y_col])]
             
-            # Apply reasonable bounds to remove unrealistic outliers
+            # Remove unrealistic outliers
             if x_col == 'Tenure':
-                plot_data = plot_data[(plot_data[x_col] > 0) & (plot_data[x_col] <= 1000)]
+                clean_data = clean_data[clean_data[x_col] > 0]  # Tenure must be positive
             if x_col == 'Avg.Online Hours perday':
-                plot_data = plot_data[(plot_data[x_col] > 0) & (plot_data[x_col] <= 24)]
+                clean_data = clean_data[(clean_data[x_col] > 0) & (clean_data[x_col] <= 24)]  # Hours per day between 0-24
             if x_col == 'hours_online':
-                plot_data = plot_data[(plot_data[x_col] > 0) & (plot_data[x_col] <= 1000)]
+                clean_data = clean_data[clean_data[x_col] > 0]  # Total hours must be positive
             if y_col == 'total_earnings':
-                plot_data = plot_data[plot_data[y_col] >= 0]
+                clean_data = clean_data[clean_data[y_col] >= 0]  # Earnings must be non-negative
             
-            if len(plot_data) == 0:
+            if len(clean_data) == 0:
                 st.warning(f"No valid data points after cleaning for {title}")
                 return None
             
-            # FINAL FIX: Create explicit x and y arrays that will be used for BOTH plotting AND hover
-            x_values = plot_data[x_col].values
-            y_values = plot_data[y_col].values
-            
-            # Prepare driver names for hover
-            plot_data['__name'] = (
-                plot_data.get('driver_first_name', '').astype(str).str.strip().fillna('') + ' ' +
-                plot_data.get('driver_surname', '').astype(str).str.strip().fillna('')
-            ).str.strip()
-            plot_data['__name'] = plot_data['__name'].where(plot_data['__name'].str.len() > 0, plot_data.get('id', 'Driver'))
-            
-            # Get DP column
-            dp_column = 'DP' if 'DP' in plot_data.columns else 'Working Plan'
-            dp_values = plot_data.get(dp_column, pd.Series([''] * len(plot_data))).values
-            
             # Create title
-            unique_drivers = len(plot_data)
+            unique_drivers = len(clean_data)
             month_text = f"{selected_month} - " if selected_month != 'All' else ""
             plot_title = f"{month_text}{title} ({dp_filter} - {tenure_filter}) - Unique Drivers: {unique_drivers}"
+
+            # Prepare hover data
+            clean_data['__name'] = (
+                clean_data.get('driver_first_name', '').astype(str).str.strip().fillna('') + ' ' +
+                clean_data.get('driver_surname', '').astype(str).str.strip().fillna('')
+            ).str.strip()
+            clean_data['__name'] = clean_data['__name'].where(clean_data['__name'].str.len() > 0, clean_data.get('id', ''))
             
-            # Create the base scatter plot using explicit arrays
-            fig = go.Figure()
+            # Safe tenure calculation
+            if 'Tenure' in clean_data.columns:
+                tenure_safe = clean_data['Tenure'].replace(0, np.nan)
+            else:
+                tenure_safe = np.nan
             
-            if dp_filter == 'Both' and dp_column in plot_data.columns:
-                # Create separate traces for each DP type
-                for dp_type, color in [('Revenue Share', '#1f77b4'), ('Rental', '#ff7f0e')]:
-                    mask = dp_values == dp_type
-                    if mask.any():
-                        fig.add_trace(go.Scatter(
-                            x=x_values[mask],
-                            y=y_values[mask],
-                            mode='markers',
-                            name=dp_type,
-                            marker=dict(
-                                color=color,
-                                size=point_size
-                            ),
-                            customdata=np.column_stack([
-                                plot_data.loc[mask, '__name'].values,
-                                dp_values[mask],
-                                x_values[mask],  # SAME VALUES AS X-AXIS
-                                y_values[mask],  # SAME VALUES AS Y-AXIS
-                                plot_data.loc[mask, 'hours_online'].fillna(0).values if 'hours_online' in plot_data.columns else np.zeros(mask.sum()),
-                                plot_data.loc[mask, 'Tenure'].fillna(0).values if 'Tenure' in plot_data.columns else np.zeros(mask.sum())
-                            ]),
-                            hovertemplate=self.get_hover_template(analysis_type)
-                        ))
+            # Get values for hover
+            avg_hours_per_day = clean_data.get('Avg.Online Hours perday', pd.Series([np.nan]*len(clean_data)))
+            hours_month = clean_data.get('hours_online', pd.Series([np.nan]*len(clean_data)))
+            trips_month = clean_data.get('trips_taken', pd.Series([np.nan]*len(clean_data)))
+            earnings_month = clean_data.get('total_earnings', pd.Series([np.nan]*len(clean_data)))
+            trips_per_day = trips_month.div(tenure_safe).round(2)
+
+            # Create scatter plot
+            dp_column = 'DP' if 'DP' in clean_data.columns else 'Working Plan'
+            
+            if dp_filter == 'Both' and dp_column in clean_data.columns:
+                fig = px.scatter(
+                    clean_data,
+                    x=x_col,
+                    y=y_col,
+                    color=dp_column,
+                    title=plot_title,
+                    labels={x_col: x_label, y_col: y_label},
+                    color_discrete_map={'Revenue Share': '#1f77b4', 'Rental': '#ff7f0e'}
+                )
             else:
                 color = {'Revenue Share': '#1f77b4', 'Rental': '#ff7f0e'}.get(dp_filter, '#1f77b4')
-                fig.add_trace(go.Scatter(
-                    x=x_values,
-                    y=y_values,
-                    mode='markers',
-                    name=dp_filter,
-                    marker=dict(
-                        color=color,
-                        size=point_size
-                    ),
-                    customdata=np.column_stack([
-                        plot_data['__name'].values,
-                        dp_values,
-                        x_values,  # SAME VALUES AS X-AXIS
-                        y_values,  # SAME VALUES AS Y-AXIS
-                        plot_data['hours_online'].fillna(0).values if 'hours_online' in plot_data.columns else np.zeros(len(plot_data)),
-                        plot_data['Tenure'].fillna(0).values if 'Tenure' in plot_data.columns else np.zeros(len(plot_data))
-                    ]),
-                    hovertemplate=self.get_hover_template(analysis_type)
-                ))
+                fig = px.scatter(
+                    clean_data,
+                    x=x_col,
+                    y=y_col,
+                    title=plot_title,
+                    labels={x_col: x_label, y_col: y_label},
+                    color_discrete_sequence=[color]
+                )
+
+            # Configure hover templates based on analysis type
+            if analysis_type == 'Tenure vs Avg Online Hours':
+                fig.update_traces(
+                    customdata=np.stack([
+                        clean_data['__name'],
+                        clean_data.get(dp_column, pd.Series(['']*len(clean_data))),
+                        clean_data.get('Tenure', pd.Series([np.nan]*len(clean_data))),
+                        avg_hours_per_day,
+                        hours_month,
+                        trips_per_day,
+                        trips_month,
+                    ], axis=-1),
+                    hovertemplate=(
+                        '<b>%{customdata[0]}</b><br>'
+                        '<b>DP working plan:</b> %{customdata[1]}<br>'
+                        '<b>Tenure:</b> %{customdata[2]:.0f} days<br>'
+                        '<b>Avg online hours per day:</b> %{customdata[3]:.2f} hrs/day<br>'
+                        '<b>Total online hours per month:</b> %{customdata[4]:.2f} hrs<br>'
+                        '<b>Total no.of trips per day:</b> %{customdata[5]:.2f}<br>'
+                        '<b>Total no.of trips per month:</b> %{customdata[6]:.0f}<br>'
+                        '<extra></extra>'
+                    )
+                )
+            elif analysis_type == 'Tenure vs Net Earnings':
+                fig.update_traces(
+                    customdata=np.stack([
+                        clean_data['__name'],
+                        clean_data.get(dp_column, pd.Series(['']*len(clean_data))),
+                        clean_data.get('Tenure', pd.Series([np.nan]*len(clean_data))),
+                        earnings_month,
+                    ], axis=-1),
+                    hovertemplate=(
+                        '<b>%{customdata[0]}</b><br>'
+                        '<b>DP working plan:</b> %{customdata[1]}<br>'
+                        '<b>Tenure:</b> %{customdata[2]:.0f} days<br>'
+                        '<b>Total Net earnings per month:</b> ₹%{customdata[3]:,.2f}<br>'
+                        '<extra></extra>'
+                    )
+                )
+            elif analysis_type == 'Total Online Hours vs Net Earnings':
+                fig.update_traces(
+                    customdata=np.stack([
+                        clean_data['__name'],
+                        hours_month,
+                        earnings_month,
+                        clean_data.get('Tenure', pd.Series([np.nan]*len(clean_data))),
+                        clean_data.get(dp_column, pd.Series(['']*len(clean_data))),
+                    ], axis=-1),
+                    hovertemplate=(
+                        '<b>%{customdata[0]}</b><br>'
+                        '<b>Total Online Hours per month:</b> %{customdata[1]:.2f} hrs<br>'
+                        '<b>Total Earnings per month:</b> ₹%{customdata[2]:,.2f}<br>'
+                        '<b>Tenure:</b> %{customdata[3]:.0f} days<br>'
+                        '<b>DP working plan:</b> %{customdata[4]}<br>'
+                        '<extra></extra>'
+                    )
+                )
+            elif analysis_type == 'Avg Online Hours vs Net Earnings':
+                fig.update_traces(
+                    customdata=np.stack([
+                        clean_data['__name'],
+                        avg_hours_per_day,
+                        earnings_month,
+                        clean_data.get('Tenure', pd.Series([np.nan]*len(clean_data))),
+                        clean_data.get(dp_column, pd.Series(['']*len(clean_data))),
+                    ], axis=-1),
+                    hovertemplate=(
+                        '<b>%{customdata[0]}</b><br>'
+                        '<b>Avg online hours per day:</b> %{customdata[1]:.2f} hrs/day<br>'
+                        '<b>Total Earnings per month:</b> ₹%{customdata[2]:,.2f}<br>'
+                        '<b>Tenure:</b> %{customdata[3]:.0f} days<br>'
+                        '<b>DP working plan:</b> %{customdata[4]}<br>'
+                        '<extra></extra>'
+                    )
+                )
+
+            # Apply point size
+            fig.update_traces(marker=dict(size=point_size))
 
             # Add trend line if requested
             if show_trend:
                 try:
-                    mask = np.isfinite(x_values) & np.isfinite(y_values)
+                    x_vals = clean_data[x_col].astype(float).values
+                    y_vals = clean_data[y_col].astype(float).values
+                    mask = np.isfinite(x_vals) & np.isfinite(y_vals)
                     if mask.sum() >= 2:
-                        slope, intercept = np.polyfit(x_values[mask], y_values[mask], 1)
-                        x_min, x_max = float(np.nanmin(x_values[mask])), float(np.nanmax(x_values[mask]))
+                        slope, intercept = np.polyfit(x_vals[mask], y_vals[mask], 1)
+                        x_min, x_max = float(np.nanmin(x_vals[mask])), float(np.nanmax(x_vals[mask]))
                         x_line = np.linspace(x_min, x_max, 100)
                         y_line = intercept + slope * x_line
                         fig.add_trace(
@@ -532,33 +606,33 @@ class DriverDashboard:
                                 y=y_line,
                                 mode='lines',
                                 name='Trend',
-                                line=dict(color='#444', width=2, dash='dash'),
-                                hoverinfo='skip'
+                                line=dict(color='#444', width=2, dash='dash')
                             )
                         )
                 except Exception:
                     pass
 
-            # Set explicit axis ranges to ensure proper scaling
-            x_min, x_max = float(np.nanmin(x_values)), float(np.nanmax(x_values))
-            y_min, y_max = float(np.nanmin(y_values)), float(np.nanmax(y_values))
+            # CRITICAL FIX: Set explicit axis ranges to ensure proper scaling
+            x_min, x_max = clean_data[x_col].min(), clean_data[x_col].max()
+            y_min, y_max = clean_data[y_col].min(), clean_data[y_col].max()
             
             # Add some padding
-            x_padding = max((x_max - x_min) * 0.05, 3)
-            y_padding = max((y_max - y_min) * 0.05, 100)
+            x_padding = (x_max - x_min) * 0.05
+            y_padding = (y_max - y_min) * 0.05
             
+            fig.update_xaxes(
+                range=[x_min - x_padding, x_max + x_padding],
+                title=x_label
+            )
+            fig.update_yaxes(
+                range=[y_min - y_padding, y_max + y_padding],
+                title=y_label
+            )
+
+            # Update layout
             fig.update_layout(
-                title=plot_title,
-                title_x=0.5,
-                xaxis=dict(
-                    title=x_label,
-                    range=[max(0, x_min - x_padding), x_max + x_padding]
-                ),
-                yaxis=dict(
-                    title=y_label,
-                    range=[max(0, y_min - y_padding), y_max + y_padding]
-                ),
                 height=600,
+                title_x=0.5,
                 showlegend=True,
                 font=dict(size=10)
             )
@@ -567,47 +641,7 @@ class DriverDashboard:
             
         except Exception as e:
             st.error(f"Error creating correlation plot: {str(e)}")
-            import traceback
-            st.error(traceback.format_exc())
             return None
-    
-    def get_hover_template(self, analysis_type):
-        """Get appropriate hover template for analysis type"""
-        if analysis_type == 'Tenure vs Avg Online Hours':
-            return (
-                '<b>%{customdata[0]}</b><br>'
-                '<b>DP working plan:</b> %{customdata[1]}<br>'
-                '<b>Tenure:</b> %{customdata[2]:.1f} days<br>'
-                '<b>Avg online hours per day:</b> %{customdata[3]:.2f} hrs/day<br>'
-                '<b>Total online hours per month:</b> %{customdata[4]:.1f} hrs<br>'
-                '<extra></extra>'
-            )
-        elif analysis_type == 'Tenure vs Net Earnings':
-            return (
-                '<b>%{customdata[0]}</b><br>'
-                '<b>DP working plan:</b> %{customdata[1]}<br>'
-                '<b>Tenure:</b> %{customdata[2]:.1f} days<br>'
-                '<b>Total Net earnings per month:</b> ₹%{customdata[3]:,.2f}<br>'
-                '<extra></extra>'
-            )
-        elif analysis_type == 'Total Online Hours vs Net Earnings':
-            return (
-                '<b>%{customdata[0]}</b><br>'
-                '<b>Total Online Hours per month:</b> %{customdata[2]:.1f} hrs<br>'
-                '<b>Total Earnings per month:</b> ₹%{customdata[3]:,.2f}<br>'
-                '<b>Tenure:</b> %{customdata[5]:.1f} days<br>'
-                '<b>DP working plan:</b> %{customdata[1]}<br>'
-                '<extra></extra>'
-            )
-        elif analysis_type == 'Avg Online Hours vs Net Earnings':
-            return (
-                '<b>%{customdata[0]}</b><br>'
-                '<b>Avg online hours per day:</b> %{customdata[2]:.2f} hrs/day<br>'
-                '<b>Total Earnings per month:</b> ₹%{customdata[3]:,.2f}<br>'
-                '<b>Tenure:</b> %{customdata[5]:.1f} days<br>'
-                '<b>DP working plan:</b> %{customdata[1]}<br>'
-                '<extra></extra>'
-            )
     
     def display_statistics(self, data, title, analysis_type, selected_month, dp_filter, tenure_filter):
         """Display statistics for filtered data"""
@@ -807,7 +841,7 @@ class DriverDashboard:
                 st.markdown("""
                 **Tenure vs Avg Online Hours Features:**
                 - **X-axis**: Tenure (Days) - **Y-axis**: Avg Online Hours per Day (hrs/day)
-                - **Hover** over points for detailed driver information including avg online hours per day, total online hours per month, and tenure
+                - **Hover** over points for detailed driver information including avg online hours per day, total online hours per month, tenure, trips per day/month
                 - **Zoom** and **pan** for better visibility of data clusters
                 - **Target Lines** (dashed) show performance benchmarks
                 - **Correlation Line** (when enabled) shows relationship strength

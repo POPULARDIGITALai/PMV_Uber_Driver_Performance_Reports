@@ -299,7 +299,7 @@ class DriverDashboard:
             return data
     
     def get_unique_drivers_data(self, data, groupby_month=False):
-        """Get unique drivers data - COMPLETELY FIXED VERSION"""
+        """Get unique drivers data with proper aggregation for earnings and hours"""
         if data is None:
             return data
         
@@ -337,26 +337,70 @@ class DriverDashboard:
                 data = data.drop('unique_driver_id', axis=1)
             return data
         
-        # CRITICAL FIX: Use index-based selection for consistent record selection
-        def select_best_record(group):
-            """Select the most complete/recent record for each driver"""
-            # Sort by completeness (non-null values) and recency if available
-            if 'created_at' in group.columns:
-                try:
-                    group['created_at'] = pd.to_datetime(group['created_at'], errors='coerce')
-                    # Select most recent record
-                    return group.loc[group['created_at'].idxmax()]
-                except:
-                    pass
+        # Proper aggregation for drivers with multiple records
+        def get_primary_dp(dp_series):
+            """Determine primary DP for a driver with multiple records"""
+            unique_dps = set(dp_series.dropna().unique())
             
-            # If no date column, select record with most non-null values
-            non_null_counts = group.count(axis=1)
-            best_idx = non_null_counts.idxmax()
-            return group.loc[best_idx]
+            if 'Revenue Share' in unique_dps:
+                return 'Revenue Share'
+            elif 'Rental' in unique_dps:
+                return 'Rental'
+            else:
+                dp_counts = dp_series.value_counts()
+                if len(dp_counts) > 0:
+                    return dp_counts.index[0]
+                else:
+                    return 'Unknown'
+        
+        # Proper aggregation rules
+        agg_rules = {}
+        for col in data.columns:
+            if col == groupby_col or col == 'unique_driver_id':
+                continue
+            elif col in ['DP', 'Working Plan', 'DP Working Plan']:
+                agg_rules[col] = get_primary_dp
+            elif col in ['id', 'driver_first_name', 'driver_surname', 'driver_email', 'driver_phone', 
+                        'folder', 'start_date', 'type', 'created_at', 'org_id', 'Month']:
+                agg_rules[col] = 'first'
+            elif col in ['end_date']:
+                agg_rules[col] = 'last'
+            elif col == 'total_earnings':
+                agg_rules[col] = 'sum'
+            elif col == 'cash_collected':
+                agg_rules[col] = 'sum'
+            elif col == 'trips_taken':
+                agg_rules[col] = 'sum'
+            elif col == 'hours_online':
+                agg_rules[col] = 'sum'
+            elif col == 'hours_on_trip':
+                agg_rules[col] = 'sum'
+            elif col == 'hours_on_job':
+                agg_rules[col] = 'sum'
+            elif col == 'Tenure':
+                agg_rules[col] = 'max'
+            elif col in ['earnings_per_hour', 'trips_per_hour', 'confirmation_rate', 'cancellation_rate']:
+                agg_rules[col] = 'mean'
+            else:
+                agg_rules[col] = 'last'
         
         try:
-            # FIXED: Use apply to select one complete record per driver
-            unique_data = data.groupby(groupby_col).apply(select_best_record).reset_index(drop=True)
+            # Perform aggregation
+            unique_data = data.groupby(groupby_col).agg(agg_rules).reset_index()
+            
+            # Recalculate Avg.Online Hours perday using aggregated values
+            if 'hours_online' in unique_data.columns and 'Tenure' in unique_data.columns:
+                tenure_safe = unique_data['Tenure'].replace(0, 1)
+                unique_data['Avg.Online Hours perday'] = unique_data['hours_online'] / tenure_safe
+            
+            # Recalculate other derived metrics if needed
+            if 'total_earnings' in unique_data.columns and 'hours_online' in unique_data.columns:
+                hours_safe = unique_data['hours_online'].replace(0, 1)
+                unique_data['earnings_per_hour'] = unique_data['total_earnings'] / hours_safe
+            
+            if 'trips_taken' in unique_data.columns and 'hours_online' in unique_data.columns:
+                hours_safe = unique_data['hours_online'].replace(0, 1)
+                unique_data['trips_per_hour'] = unique_data['trips_taken'] / hours_safe
             
             if 'unique_driver_id' in unique_data.columns:
                 unique_data = unique_data.drop('unique_driver_id', axis=1)
@@ -364,7 +408,7 @@ class DriverDashboard:
             return unique_data
             
         except Exception as e:
-            # Fallback to simple deduplication
+            st.warning(f"Error in aggregation, using fallback method: {str(e)}")
             return data.drop_duplicates(subset=unique_cols, keep='last')
     
     def calculate_correlation(self, data, x_col, y_col):
@@ -380,13 +424,13 @@ class DriverDashboard:
             return None, None
     
     def create_interactive_scatter_plot(self, data, title, analysis_type, selected_month, dp_filter, tenure_filter, show_targets=True, point_size=8, show_trend=False):
-        """Create scatter plot with PERFECTLY ALIGNED dot positioning - FINAL FIX"""
+        """Create scatter plot with fixed axis ranges for Tenure vs Avg Online Hours"""
         try:
             if data is None or len(data) == 0:
                 st.warning(f"No data available for {title}")
                 return None
             
-            # Get unique drivers data with FIXED aggregation
+            # Get unique drivers data
             unique_data = self.get_unique_drivers_data(data)
             
             # Define axis mappings based on analysis type
@@ -411,7 +455,6 @@ class DriverDashboard:
                 x_label = 'Avg Online Hours per Day (hrs/day)'
                 y_label = 'Total Earnings (₹)'
             
-            # CRITICAL FIX: Ensure we're using the exact same values for plotting AND hover
             plot_data = unique_data.copy()
             
             # Ensure x and y columns exist and are numeric
@@ -448,7 +491,7 @@ class DriverDashboard:
                 st.warning(f"No valid data points after cleaning for {title}")
                 return None
             
-            # FINAL FIX: Create explicit x and y arrays that will be used for BOTH plotting AND hover
+            # Create explicit x and y arrays for consistent plotting and hover
             x_values = plot_data[x_col].values
             y_values = plot_data[y_col].values
             
@@ -468,8 +511,16 @@ class DriverDashboard:
             month_text = f"{selected_month} - " if selected_month != 'All' else ""
             plot_title = f"{month_text}{title} ({dp_filter} - {tenure_filter}) - Unique Drivers: {unique_drivers}"
             
-            # Create the base scatter plot using explicit arrays
+            # Create the base scatter plot
             fig = go.Figure()
+            
+            # Calculate avg online hours per month for hover display
+            if analysis_type == 'Tenure vs Avg Online Hours':
+                months_worked = plot_data['Tenure'] / 30.0
+                months_worked = np.maximum(months_worked, 0.1)
+                avg_hours_per_month = plot_data['hours_online'] / months_worked
+            else:
+                avg_hours_per_month = plot_data['hours_online']
             
             if dp_filter == 'Both' and dp_column in plot_data.columns:
                 # Create separate traces for each DP type
@@ -488,9 +539,9 @@ class DriverDashboard:
                             customdata=np.column_stack([
                                 plot_data.loc[mask, '__name'].values,
                                 dp_values[mask],
-                                x_values[mask],  # SAME VALUES AS X-AXIS
-                                y_values[mask],  # SAME VALUES AS Y-AXIS
-                                plot_data.loc[mask, 'hours_online'].fillna(0).values if 'hours_online' in plot_data.columns else np.zeros(mask.sum()),
+                                x_values[mask],
+                                y_values[mask],
+                                avg_hours_per_month.loc[mask].values if analysis_type == 'Tenure vs Avg Online Hours' else plot_data.loc[mask, 'hours_online'].fillna(0).values,
                                 plot_data.loc[mask, 'Tenure'].fillna(0).values if 'Tenure' in plot_data.columns else np.zeros(mask.sum())
                             ]),
                             hovertemplate=self.get_hover_template(analysis_type)
@@ -509,9 +560,9 @@ class DriverDashboard:
                     customdata=np.column_stack([
                         plot_data['__name'].values,
                         dp_values,
-                        x_values,  # SAME VALUES AS X-AXIS
-                        y_values,  # SAME VALUES AS Y-AXIS
-                        plot_data['hours_online'].fillna(0).values if 'hours_online' in plot_data.columns else np.zeros(len(plot_data)),
+                        x_values,
+                        y_values,
+                        avg_hours_per_month.values if analysis_type == 'Tenure vs Avg Online Hours' else plot_data['hours_online'].fillna(0).values,
                         plot_data['Tenure'].fillna(0).values if 'Tenure' in plot_data.columns else np.zeros(len(plot_data))
                     ]),
                     hovertemplate=self.get_hover_template(analysis_type)
@@ -539,25 +590,48 @@ class DriverDashboard:
                 except Exception:
                     pass
 
-            # Set explicit axis ranges to ensure proper scaling
-            x_min, x_max = float(np.nanmin(x_values)), float(np.nanmax(x_values))
-            y_min, y_max = float(np.nanmin(y_values)), float(np.nanmax(y_values))
-            
-            # Add some padding
-            x_padding = max((x_max - x_min) * 0.05, 3)
-            y_padding = max((y_max - y_min) * 0.05, 100)
-            
+            # FIXED: Custom axis ranges based on analysis type
+            if analysis_type == 'Tenure vs Avg Online Hours':
+                # X-axis: Tenure with specific ticks at 0, 50, 100, 150, 200, 250, 300, 350
+                # Y-axis: Avg Online Hours per Day from 0-24
+                fig.update_layout(
+                    xaxis=dict(
+                        title=x_label,
+                        range=[0, 350],
+                        tickvals=[0, 50, 100, 150, 200, 250, 300, 350],
+                        ticktext=['0', '50', '100', '150', '200', '250', '300', '350']
+                    ),
+                    yaxis=dict(
+                        title=y_label,
+                        range=[0, 24],
+                        tickvals=list(range(0, 25, 2)),  # Ticks every 2 hours from 0 to 24
+                        ticktext=[str(i) for i in range(0, 25, 2)]
+                    )
+                )
+            else:
+                # For other analysis types, use dynamic ranges with padding
+                x_min, x_max = float(np.nanmin(x_values)), float(np.nanmax(x_values))
+                y_min, y_max = float(np.nanmin(y_values)), float(np.nanmax(y_values))
+                
+                # Add some padding
+                x_padding = max((x_max - x_min) * 0.05, 1)
+                y_padding = max((y_max - y_min) * 0.05, 100)
+                
+                fig.update_layout(
+                    xaxis=dict(
+                        title=x_label,
+                        range=[max(0, x_min - x_padding), x_max + x_padding]
+                    ),
+                    yaxis=dict(
+                        title=y_label,
+                        range=[max(0, y_min - y_padding), y_max + y_padding]
+                    )
+                )
+
+            # Common layout settings
             fig.update_layout(
                 title=plot_title,
                 title_x=0.5,
-                xaxis=dict(
-                    title=x_label,
-                    range=[max(0, x_min - x_padding), x_max + x_padding]
-                ),
-                yaxis=dict(
-                    title=y_label,
-                    range=[max(0, y_min - y_padding), y_max + y_padding]
-                ),
                 height=600,
                 showlegend=True,
                 font=dict(size=10)
@@ -579,7 +653,7 @@ class DriverDashboard:
                 '<b>DP working plan:</b> %{customdata[1]}<br>'
                 '<b>Tenure:</b> %{customdata[2]:.1f} days<br>'
                 '<b>Avg online hours per day:</b> %{customdata[3]:.2f} hrs/day<br>'
-                '<b>Total online hours per month:</b> %{customdata[4]:.1f} hrs<br>'
+                '<b>Avg online hours per month:</b> %{customdata[4]:.1f} hrs<br>'
                 '<extra></extra>'
             )
         elif analysis_type == 'Tenure vs Net Earnings':
@@ -806,7 +880,8 @@ class DriverDashboard:
             elif analysis_type == 'Tenure vs Avg Online Hours':
                 st.markdown("""
                 **Tenure vs Avg Online Hours Features:**
-                - **X-axis**: Tenure (Days) - **Y-axis**: Avg Online Hours per Day (hrs/day)
+                - **X-axis**: Tenure (Days) ranging from 0 to 350 days (with ticks at 0, 50, 100, 150, 200, 250, 300, 350)
+                - **Y-axis**: Avg Online Hours per Day ranging from 0 to 24 hours (with ticks every 2 hours)
                 - **Hover** over points for detailed driver information including avg online hours per day, total online hours per month, and tenure
                 - **Zoom** and **pan** for better visibility of data clusters
                 - **Target Lines** (dashed) show performance benchmarks
@@ -959,3 +1034,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    

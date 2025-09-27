@@ -597,9 +597,9 @@ class DriverDashboard:
                 fig.update_layout(
                     xaxis=dict(
                         title=x_label,
-                        range=[0, 350],
-                        tickvals=[0, 50, 100, 150, 200, 250, 300, 350],
-                        ticktext=['0', '50', '100', '150', '200', '250', '300', '350']
+                        range=[0, 500],
+                        tickvals=[0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500],
+                        ticktext=['0', '50', '100', '150', '200', '250', '300', '350', '400', '450', '500']
                     ),
                     yaxis=dict(
                         title=y_label,

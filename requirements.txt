@@ -1,3 +1,4 @@
+--no-binary protobuf
 altair
 blinker
 cachetools

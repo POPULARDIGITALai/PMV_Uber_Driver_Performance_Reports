@@ -1,0 +1,13 @@
+[server]
+enableCORS = false
+```
+
+And add this environment variable setting by creating a `packages.txt` file:
+```
+PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+```
+
+Wait - that won't work either. Let me give you the **real solution** - upgrade Streamlit, because `uv` is actively fighting against old protobuf versions:
+```
+streamlit==1.28.0
+protobuf==4.24.4
